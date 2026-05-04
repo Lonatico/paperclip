@@ -1,4 +1,15 @@
 # syntax=docker/dockerfile:1.20
+#
+# Production image for Paperclip (API + static UI). Tested layout for Railway:
+#
+# 1. Provision PostgreSQL on Railway and set DATABASE_URL on the same service
+#    (or point DATABASE_URL to any external Postgres).
+# 2. Railway sets PORT at runtime — do not hardcode PORT in the image; the server
+#    reads process.env.PORT (see server/src/config.ts).
+# 3. For OAuth / magic links in authenticated mode, set the public URL env vars
+#    documented in doc/DEVELOPING.md / deployment docs (e.g. PAPERCLIP_API_URL,
+#    BETTER_AUTH_URL or your auth base URL as required by your setup).
+#
 FROM node:lts-trixie-slim AS base
 ARG USER_UID=1000
 ARG USER_GID=1000
@@ -64,7 +75,6 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 ENV NODE_ENV=production \
   HOME=/paperclip \
   HOST=0.0.0.0 \
-  PORT=3100 \
   SERVE_UI=true \
   PAPERCLIP_HOME=/paperclip \
   PAPERCLIP_INSTANCE_ID=default \
@@ -73,10 +83,15 @@ ENV NODE_ENV=production \
   PAPERCLIP_CONFIG=/paperclip/instances/default/config.json \
   PAPERCLIP_DEPLOYMENT_MODE=authenticated \
   PAPERCLIP_DEPLOYMENT_EXPOSURE=private \
+  PAPERCLIP_MIGRATION_AUTO_APPLY=true \
   OPENCODE_ALLOW_ALL_MODELS=true
 
 VOLUME ["/paperclip"]
 EXPOSE 3100
+
+# Railway (and similar) inject PORT; local runs default to 3100 in app config.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+  CMD sh -c "curl -fsS http://127.0.0.1:$${PORT:-3100}/api/health >/dev/null || exit 1"
 
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "--import", "./server/node_modules/tsx/dist/loader.mjs", "server/dist/index.js"]
