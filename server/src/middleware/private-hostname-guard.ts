@@ -1,5 +1,21 @@
 import type { Request, RequestHandler } from "express";
 
+function pathnameCandidates(req: Request): string[] {
+  const out = new Set<string>();
+  const trim = (s: string) => (s.replace(/\/+$/, "") || "/") as string;
+  if (typeof req.path === "string" && req.path.length > 0) {
+    out.add(trim(req.path));
+  }
+  try {
+    const u = new URL(req.originalUrl, "http://healthcheck.local");
+    out.add(trim(u.pathname));
+  } catch {
+    const q = req.originalUrl.split("?")[0] ?? "";
+    if (q) out.add(trim(q));
+  }
+  return Array.from(out);
+}
+
 function isLoopbackHostname(hostname: string): boolean {
   const normalized = hostname.trim().toLowerCase();
   return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
@@ -39,6 +55,8 @@ export function resolvePrivateHostnameAllowSet(opts: { allowedHostnames: string[
   allowSet.add("localhost");
   allowSet.add("127.0.0.1");
   allowSet.add("::1");
+  // Railway health probes send Host: healthcheck.railway.app (see Railway healthcheck docs).
+  allowSet.add("healthcheck.railway.app");
   return allowSet;
 }
 
@@ -50,9 +68,8 @@ function blockedHostnameMessage(hostname: string): string {
 }
 
 /** PaaS / LB liveness (no DB); must not require allowed-hostname wiring for deploy probes. */
-function isInfrastructureLivenessPath(path: string): boolean {
-  const normalized = path.replace(/\/+$/, "") || "/";
-  return normalized === "/api/health/live";
+function isInfrastructureLivenessRequest(req: Request): boolean {
+  return pathnameCandidates(req).some((p) => p === "/api/health/live");
 }
 
 export function privateHostnameGuard(opts: {
@@ -70,7 +87,7 @@ export function privateHostnameGuard(opts: {
   });
 
   return (req, res, next) => {
-    if (isInfrastructureLivenessPath(req.path)) {
+    if (isInfrastructureLivenessRequest(req)) {
       next();
       return;
     }

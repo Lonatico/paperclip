@@ -59,6 +59,12 @@ describe("privateHostnameGuard", () => {
     expect(res.body).toEqual({ status: "ok", scope: "liveness" });
   });
 
+  it("allows Railway healthcheck hostname for /api/health (full probe path)", async () => {
+    const app = createApp({ enabled: true, allowedHostnames: ["some-other-host"] });
+    const res = await request(app).get("/api/health").set("Host", "healthcheck.railway.app");
+    expect(res.status).toBe(200);
+  });
+
   it("blocks unknown hostnames on page routes with plain-text remediation command", async () => {
     const middleware = privateHostnameGuard({
       enabled: true,

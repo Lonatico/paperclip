@@ -10,8 +10,8 @@
 #    documented in doc/DEVELOPING.md / deployment docs (e.g. PAPERCLIP_API_URL,
 #    BETTER_AUTH_URL or your auth base URL as required by your setup).
 # 4. Private exposure: set PAPERCLIP_ALLOWED_HOSTNAMES to your public hostname(s),
-#    comma-separated (e.g. myapp.up.railway.app) so the browser UI/API work; deploy
-#    health still uses /api/health/live without that list.
+#    comma-separated (e.g. myapp.up.railway.app) so the browser UI/API work. Railway's
+#    deploy probe uses Host healthcheck.railway.app — that host is allowlisted in code.
 #
 FROM node:lts-trixie-slim AS base
 ARG USER_UID=1000
