@@ -45,6 +45,16 @@ export type MigrationState =
       reason: "no-migration-journal-empty-db" | "no-migration-journal-non-empty-db" | "pending-migrations";
     };
 
+/** Public has tables but __drizzle_migrations is missing (narrowed reason for bootstrap). */
+export type NonEmptyDbNoMigrationJournalState = {
+  status: "needsMigrations";
+  tableCount: number;
+  availableMigrations: string[];
+  appliedMigrations: string[];
+  pendingMigrations: string[];
+  reason: "no-migration-journal-non-empty-db";
+};
+
 export function createDb(url: string) {
   const sql = postgres(url);
   return drizzlePg(sql, { schema });
@@ -665,7 +675,7 @@ export async function inspectMigrations(url: string): Promise<MigrationState> {
  */
 async function bootstrapMigrationJournalForNonEmptyDatabase(
   url: string,
-  initialState: Extract<MigrationState, { status: "needsMigrations"; reason: "no-migration-journal-non-empty-db" }>,
+  initialState: NonEmptyDbNoMigrationJournalState,
 ): Promise<void> {
   let remainingAfterBackfill: string[] = [];
   const sql = createUtilitySql(url);
@@ -743,7 +753,10 @@ export async function applyPendingMigrations(url: string): Promise<void> {
   }
 
   if (initialState.reason === "no-migration-journal-non-empty-db") {
-    await bootstrapMigrationJournalForNonEmptyDatabase(url, initialState);
+    await bootstrapMigrationJournalForNonEmptyDatabase(
+      url,
+      initialState as NonEmptyDbNoMigrationJournalState,
+    );
   }
 
   let state = await inspectMigrations(url);
