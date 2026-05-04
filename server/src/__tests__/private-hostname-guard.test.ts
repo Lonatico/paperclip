@@ -17,6 +17,9 @@ function createApp(opts: { enabled: boolean; allowedHostnames?: string[]; bindHo
   app.get("/api/health", (_req, res) => {
     res.status(200).json({ status: "ok" });
   });
+  app.get("/api/health/live", (_req, res) => {
+    res.status(200).json({ status: "ok", scope: "liveness" });
+  });
   app.get("/dashboard", (_req, res) => {
     res.status(200).send("ok");
   });
@@ -47,6 +50,13 @@ describe("privateHostnameGuard", () => {
     const res = await request(app).get("/api/health").set("Host", `${unknownHostname}:3100`);
     expect(res.status).toBe(403);
     expect(res.body?.error).toContain(`please run pnpm paperclipai allowed-hostname ${unknownHostname}`);
+  });
+
+  it("allows /api/health/live for unknown hostnames so PaaS deploy probes can pass", async () => {
+    const app = createApp({ enabled: true, allowedHostnames: ["some-other-host"] });
+    const res = await request(app).get("/api/health/live").set("Host", `${unknownHostname}:3100`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ status: "ok", scope: "liveness" });
   });
 
   it("blocks unknown hostnames on page routes with plain-text remediation command", async () => {

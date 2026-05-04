@@ -49,6 +49,12 @@ function blockedHostnameMessage(hostname: string): string {
   );
 }
 
+/** PaaS / LB liveness (no DB); must not require allowed-hostname wiring for deploy probes. */
+function isInfrastructureLivenessPath(path: string): boolean {
+  const normalized = path.replace(/\/+$/, "") || "/";
+  return normalized === "/api/health/live";
+}
+
 export function privateHostnameGuard(opts: {
   enabled: boolean;
   allowedHostnames: string[];
@@ -64,6 +70,11 @@ export function privateHostnameGuard(opts: {
   });
 
   return (req, res, next) => {
+    if (isInfrastructureLivenessPath(req.path)) {
+      next();
+      return;
+    }
+
     const hostname = extractHostname(req);
     const wantsJson = req.path.startsWith("/api") || req.accepts(["json", "html", "text"]) === "json";
 
