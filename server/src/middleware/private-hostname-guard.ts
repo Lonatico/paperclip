@@ -21,6 +21,24 @@ function isLoopbackHostname(hostname: string): boolean {
   return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
 }
 
+/** True when running inside Railway's runtime (injected on deploy). */
+function isRailwayManagedDeploy(): boolean {
+  return Boolean(
+    process.env.RAILWAY_ENVIRONMENT ||
+      process.env.RAILWAY_PROJECT_ID ||
+      process.env.RAILWAY_SERVICE_ID,
+  );
+}
+
+/**
+ * Default public app host on Railway (e.g. myservice-production-xxxx.up.railway.app).
+ * Custom domains still require PAPERCLIP_ALLOWED_HOSTNAMES.
+ */
+function isRailwayDefaultPublicHostname(hostname: string): boolean {
+  const h = hostname.trim().toLowerCase();
+  return h.endsWith(".up.railway.app");
+}
+
 function extractHostname(req: Request): string | null {
   const forwardedHost = req.header("x-forwarded-host")?.split(",")[0]?.trim();
   const hostHeader = req.header("host")?.trim();
@@ -106,6 +124,11 @@ export function privateHostnameGuard(opts: {
     }
 
     if (isLoopbackHostname(hostname) || allowSet.has(hostname)) {
+      next();
+      return;
+    }
+
+    if (isRailwayManagedDeploy() && isRailwayDefaultPublicHostname(hostname)) {
       next();
       return;
     }

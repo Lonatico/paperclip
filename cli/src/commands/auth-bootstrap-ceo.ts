@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import fs from "node:fs";
 import * as p from "@clack/prompts";
 import pc from "picocolors";
 import { and, eq, gt, isNull } from "drizzle-orm";
@@ -15,10 +16,39 @@ function createInviteToken() {
   return `pcp_bootstrap_${randomBytes(24).toString("hex")}`;
 }
 
+/** Railway injects these at runtime; `railway ssh` may not inherit Dockerfile-only env vars. */
+function isRailwayRuntime(): boolean {
+  return Boolean(
+    process.env.RAILWAY_ENVIRONMENT ||
+      process.env.RAILWAY_PROJECT_ID ||
+      process.env.RAILWAY_SERVICE_ID,
+  );
+}
+
+/**
+ * `railway ssh` / similar often start a shell **without** service-linked variables.
+ * PID 1 in Linux containers usually retains the full env passed to the container (incl. DATABASE_URL).
+ */
+function inheritDatabaseUrlFromInitProcess(): void {
+  if (process.env.DATABASE_URL?.trim()) return;
+  try {
+    const raw = fs.readFileSync("/proc/1/environ");
+    for (const chunk of raw.toString("binary").split("\0")) {
+      if (chunk.startsWith("DATABASE_URL=")) {
+        const v = chunk.slice("DATABASE_URL=".length).trim();
+        if (v) process.env.DATABASE_URL = v;
+        return;
+      }
+    }
+  } catch {
+    // Not Linux, no /proc, or unreadable.
+  }
+}
+
 function resolveDbUrl(configPath?: string, explicitDbUrl?: string) {
   if (explicitDbUrl) return explicitDbUrl;
+  if (process.env.DATABASE_URL?.trim()) return process.env.DATABASE_URL.trim();
   const config = readConfig(configPath);
-  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   if (config?.database.mode === "postgres" && config.database.connectionString) {
     return config.database.connectionString;
   }
@@ -41,12 +71,16 @@ function resolveBaseUrl(configPath?: string, explicitBaseUrl?: string) {
   if (config?.auth.baseUrlMode === "explicit" && config.auth.publicBaseUrl) {
     return config.auth.publicBaseUrl.replace(/\/+$/, "");
   }
-  const bind = config?.server.bind ?? inferBindModeFromHost(config?.server.host);
+  if (!config) {
+    const port = Number(process.env.PORT) || 3100;
+    return `http://127.0.0.1:${port}`;
+  }
+  const bind = config.server.bind ?? inferBindModeFromHost(config.server.host);
   const host =
     bind === "custom"
-      ? config?.server.customBindHost ?? config?.server.host ?? "localhost"
-      : config?.server.host ?? "localhost";
-  const port = config?.server.port ?? 3100;
+      ? config.server.customBindHost ?? config.server.host ?? "localhost"
+      : config.server.host ?? "localhost";
+  const port = config.server.port ?? 3100;
   const publicHost = host === "0.0.0.0" || bind === "lan" ? "localhost" : host;
   return `http://${publicHost}:${port}`;
 }
@@ -60,23 +94,64 @@ export async function bootstrapCeoInvite(opts: {
 }) {
   const configPath = resolveConfigPath(opts.config);
   loadPaperclipEnvFile(configPath);
+  inheritDatabaseUrlFromInitProcess();
   const config = readConfig(configPath);
-  if (!config) {
+  const authenticatedFromEnv = process.env.PAPERCLIP_DEPLOYMENT_MODE?.trim() === "authenticated";
+  const hasDb =
+    Boolean(process.env.DATABASE_URL?.trim()) || Boolean(opts.dbUrl?.trim());
+  const publicBaseHint =
+    opts.baseUrl?.trim() ||
+    process.env.PAPERCLIP_PUBLIC_URL?.trim() ||
+    process.env.PAPERCLIP_AUTH_PUBLIC_BASE_URL?.trim() ||
+    process.env.BETTER_AUTH_URL?.trim() ||
+    process.env.BETTER_AUTH_BASE_URL?.trim();
+
+  // Docker / PaaS SSH often omits RAILWAY_* and PAPERCLIP_DEPLOYMENT_MODE; DATABASE_URL + public URL is enough.
+  const allowBootstrapWithoutConfigFile =
+    authenticatedFromEnv || (isRailwayRuntime() && hasDb) || (hasDb && Boolean(publicBaseHint));
+
+  if (!config && !allowBootstrapWithoutConfigFile) {
     p.log.error(`No config found at ${configPath}. Run ${pc.cyan("paperclip onboard")} first.`);
+    if (!process.env.DATABASE_URL?.trim() && !opts.dbUrl?.trim()) {
+      p.log.info(
+        "If you are in a PaaS SSH shell: DATABASE_URL may be unset here. Run " +
+          `${pc.cyan("printenv DATABASE_URL")} or copy the variable from the dashboard, ` +
+          `${pc.cyan("export DATABASE_URL='...'")}, or pass ${pc.cyan("--db-url")}.`,
+      );
+    }
     return;
   }
 
-  if (config.server.deploymentMode !== "authenticated") {
-    p.log.info("Deployment mode is local_trusted. Bootstrap CEO invite is only required for authenticated mode.");
+  const deploymentAuthenticated =
+    config?.server.deploymentMode === "authenticated" ||
+    authenticatedFromEnv ||
+    (allowBootstrapWithoutConfigFile && !config);
+  if (!deploymentAuthenticated) {
+    p.log.info("Bootstrap CEO invite is only used in authenticated deployment mode.");
     return;
   }
 
   const dbUrl = resolveDbUrl(configPath, opts.dbUrl);
   if (!dbUrl) {
     p.log.error(
-      "Could not resolve database connection for bootstrap.",
+      "Could not resolve database connection for bootstrap. Set DATABASE_URL or use a config file with database.connectionString.",
     );
     return;
+  }
+
+  if (!config && allowBootstrapWithoutConfigFile) {
+    const publicBase =
+      opts.baseUrl?.trim() ||
+      process.env.PAPERCLIP_PUBLIC_URL?.trim() ||
+      process.env.PAPERCLIP_AUTH_PUBLIC_BASE_URL?.trim() ||
+      process.env.BETTER_AUTH_URL?.trim() ||
+      process.env.BETTER_AUTH_BASE_URL?.trim();
+    if (!publicBase) {
+      p.log.error(
+        "No config file: pass --base-url https://<your-public-host> (or set PAPERCLIP_PUBLIC_URL) so the invite link points at this instance.",
+      );
+      return;
+    }
   }
 
   const db = createDb(dbUrl);

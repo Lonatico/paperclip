@@ -5,7 +5,16 @@ import { authApi } from "@/api/auth";
 import { healthApi } from "@/api/health";
 import { queryKeys } from "@/lib/queryKeys";
 
+function bootstrapCeoCommand(publicBaseUrl: string) {
+  return `pnpm paperclipai auth bootstrap-ceo --data-dir /paperclip --base-url "${publicBaseUrl}"`;
+}
+
 function BootstrapPendingPage({ hasActiveInvite = false }: { hasActiveInvite?: boolean }) {
+  const publicBaseUrl =
+    typeof window !== "undefined" && window.location.origin?.trim()
+      ? window.location.origin.trim()
+      : "https://YOUR-PUBLIC-URL";
+
   return (
     <div className="mx-auto max-w-xl py-10">
       <div className="rounded-lg border border-border bg-card p-6">
@@ -13,11 +22,16 @@ function BootstrapPendingPage({ hasActiveInvite = false }: { hasActiveInvite?: b
         <p className="mt-2 text-sm text-muted-foreground">
           {hasActiveInvite
             ? "No instance admin exists yet. A bootstrap invite is already active. Check your Paperclip startup logs for the first admin invite URL, or run this command to rotate it:"
-            : "No instance admin exists yet. Run this command in your Paperclip environment to generate the first admin invite URL:"}
+            : "No instance admin exists yet. Run this command where Paperclip runs (same machine or container as the server, with DATABASE_URL available) to print the first admin invite URL:"}
         </p>
         <pre className="mt-4 overflow-x-auto rounded-md border border-border bg-muted/30 p-3 text-xs">
-{`pnpm paperclipai auth bootstrap-ceo`}
+{bootstrapCeoCommand(publicBaseUrl)}
         </pre>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Docker / Railway: open a shell in the running service, <code className="rounded bg-muted px-1">cd /app</code>
+          , then run the command. Replace the URL if the browser address differs. Locally you can omit{" "}
+          <code className="rounded bg-muted px-1">--data-dir /paperclip</code> when using the default home.
+        </p>
       </div>
     </div>
   );

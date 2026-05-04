@@ -27,6 +27,19 @@ function createApp(opts: { enabled: boolean; allowedHostnames?: string[]; bindHo
 }
 
 describe("privateHostnameGuard", () => {
+  it("allows *.up.railway.app when Railway runtime env is present", async () => {
+    vi.stubEnv("RAILWAY_PROJECT_ID", "test-railway-project");
+    try {
+      const app = createApp({ enabled: true, allowedHostnames: ["some-other-host"] });
+      const res = await request(app)
+        .get("/api/health")
+        .set("Host", "paperclip-production-6571.up.railway.app");
+      expect(res.status).toBe(200);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("allows requests when disabled", async () => {
     const app = createApp({ enabled: false });
     const res = await request(app).get("/api/health").set("Host", "dotta-macbook-pro:3100");

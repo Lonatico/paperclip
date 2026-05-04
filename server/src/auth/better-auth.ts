@@ -94,10 +94,11 @@ export function createBetterAuthInstance(db: Db, config: Config, trustedOrigins:
   const baseUrl = config.authBaseUrlMode === "explicit" ? config.authPublicBaseUrl : undefined;
   const secret = process.env.BETTER_AUTH_SECRET ?? process.env.PAPERCLIP_AGENT_JWT_SECRET;
   if (!secret) {
-    throw new Error(
-      "BETTER_AUTH_SECRET (or PAPERCLIP_AGENT_JWT_SECRET) must be set. " +
-      "For local development, set BETTER_AUTH_SECRET=paperclip-dev-secret in your .env file.",
-    );
+    const hint =
+      process.env.NODE_ENV === "production"
+        ? "Set BETTER_AUTH_SECRET (or PAPERCLIP_AGENT_JWT_SECRET) in your host environment (e.g. Railway Variables) to a long random value — do not commit it to the image."
+        : "For local development, set BETTER_AUTH_SECRET=paperclip-dev-secret in your .env file.";
+    throw new Error(`BETTER_AUTH_SECRET (or PAPERCLIP_AGENT_JWT_SECRET) must be set. ${hint}`);
   }
   const publicUrl = process.env.PAPERCLIP_PUBLIC_URL ?? baseUrl;
   const isHttpOnly = publicUrl ? publicUrl.startsWith("http://") : false;

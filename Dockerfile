@@ -9,9 +9,12 @@
 # 3. For OAuth / magic links in authenticated mode, set the public URL env vars
 #    documented in doc/DEVELOPING.md / deployment docs (e.g. PAPERCLIP_API_URL,
 #    BETTER_AUTH_URL or your auth base URL as required by your setup).
-# 4. Private exposure: set PAPERCLIP_ALLOWED_HOSTNAMES to your public hostname(s),
-#    comma-separated (e.g. myapp.up.railway.app) so the browser UI/API work. Railway's
-#    deploy probe uses Host healthcheck.railway.app — that host is allowlisted in code.
+# 4. Private exposure: default Railway URL host (*.up.railway.app) is auto-allowed when
+#    Railway injects RAILWAY_* env. Custom domains still need PAPERCLIP_ALLOWED_HOSTNAMES.
+#    Deploy probe Host healthcheck.railway.app is allowlisted in code.
+# 5. Authenticated mode (below): set BETTER_AUTH_SECRET in Railway Variables (e.g.
+#    openssl rand -hex 32). Optional alternative: PAPERCLIP_AGENT_JWT_SECRET. Never
+#    bake secrets into the image.
 #
 FROM node:lts-trixie-slim AS base
 ARG USER_UID=1000

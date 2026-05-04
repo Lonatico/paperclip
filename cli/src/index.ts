@@ -158,6 +158,7 @@ auth
   .description("Create a one-time bootstrap invite URL for first instance admin")
   .option("-c, --config <path>", "Path to config file")
   .option("-d, --data-dir <path>", DATA_DIR_OPTION_HELP)
+  .option("--db-url <url>", "PostgreSQL URL for this command (default: DATABASE_URL or config file)")
   .option("--force", "Create new invite even if admin already exists", false)
   .option("--expires-hours <hours>", "Invite expiration window in hours", (value) => Number(value))
   .option("--base-url <url>", "Public base URL used to print invite link")
