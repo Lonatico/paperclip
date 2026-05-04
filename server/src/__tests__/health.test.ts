@@ -28,6 +28,20 @@ describe("GET /health", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
+
+  it("GET /health/live returns 200 without touching the database", async () => {
+    const db = {
+      execute: vi.fn().mockRejectedValue(new Error("should not run")),
+    } as unknown as Db;
+    const app = createApp(db);
+
+    const res = await request(app).get("/health/live");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ status: "ok", scope: "liveness" });
+    expect(db.execute).not.toHaveBeenCalled();
+  });
+
   it("returns 200 with status ok", async () => {
     const app = createApp();
     const res = await request(app).get("/health");

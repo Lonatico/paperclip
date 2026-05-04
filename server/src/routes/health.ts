@@ -44,6 +44,12 @@ export function healthRoutes(
 ) {
   const router = Router();
 
+  // Liveness only (no DB). Use for load-balancer / PaaS deploy gates (e.g. Railway)
+  // when / would return 503 during DB misconfiguration or cold replicas.
+  router.get("/live", (_req, res) => {
+    res.status(200).json({ status: "ok", scope: "liveness" });
+  });
+
   router.get("/", async (req, res) => {
     const actorType = "actor" in req ? req.actor?.type : null;
     const exposeFullDetails = shouldExposeFullHealthDetails(
