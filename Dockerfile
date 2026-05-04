@@ -86,7 +86,8 @@ ENV NODE_ENV=production \
   PAPERCLIP_MIGRATION_AUTO_APPLY=true \
   OPENCODE_ALLOW_ALL_MODELS=true
 
-VOLUME ["/paperclip"]
+# No VOLUME: Railway rejects Dockerfile VOLUME; attach a Railway Volume and mount
+# at /paperclip in the service settings if you need persistent HOME/config there.
 EXPOSE 3100
 
 # Railway (and similar) inject PORT; local runs default to 3100 in app config.
