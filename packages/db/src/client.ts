@@ -657,6 +657,60 @@ export async function inspectMigrations(url: string): Promise<MigrationState> {
   }
 }
 
+/**
+ * Public schema already has tables but Drizzle's __drizzle_migrations journal is missing
+ * (e.g. interrupted deploy, or DB created outside migrate). Create the journal table,
+ * insert rows for migrations whose SQL is already reflected in the schema, then apply
+ * any remaining migration files normally.
+ */
+async function bootstrapMigrationJournalForNonEmptyDatabase(
+  url: string,
+  initialState: Extract<MigrationState, { status: "needsMigrations"; reason: "no-migration-journal-non-empty-db" }>,
+): Promise<void> {
+  let remainingAfterBackfill: string[] = [];
+  const sql = createUtilitySql(url);
+  try {
+    const { migrationTableSchema, columnNames } = await ensureMigrationJournalTable(sql);
+    const qualifiedTable = `${quoteIdentifier(migrationTableSchema)}.${quoteIdentifier(DRIZZLE_MIGRATIONS_TABLE)}`;
+    const journalEntries = await listJournalMigrationEntries();
+    const folderMillisByFileName = new Map(
+      journalEntries.map((entry) => [entry.fileName, normalizeFolderMillis(entry.folderMillis)]),
+    );
+    const ordered = await orderMigrationsByJournal(initialState.pendingMigrations);
+
+    for (let i = 0; i < ordered.length; i++) {
+      const migrationFile = ordered[i]!;
+      const migrationContent = await readMigrationFileContent(migrationFile);
+      const hash = createHash("sha256").update(migrationContent).digest("hex");
+
+      if (await migrationHistoryEntryExists(sql, qualifiedTable, columnNames, migrationFile, hash)) {
+        continue;
+      }
+
+      const alreadyApplied = await migrationContentAlreadyApplied(sql, migrationContent);
+      if (!alreadyApplied) {
+        remainingAfterBackfill = ordered.slice(i);
+        break;
+      }
+
+      await recordMigrationHistoryEntry(
+        sql,
+        qualifiedTable,
+        columnNames,
+        migrationFile,
+        hash,
+        folderMillisByFileName.get(migrationFile) ?? Date.now(),
+      );
+    }
+  } finally {
+    await sql.end();
+  }
+
+  if (remainingAfterBackfill.length > 0) {
+    await applyPendingMigrationsManually(url, remainingAfterBackfill);
+  }
+}
+
 export async function applyPendingMigrations(url: string): Promise<void> {
   const initialState = await inspectMigrations(url);
   if (initialState.status === "upToDate") return;
@@ -689,9 +743,7 @@ export async function applyPendingMigrations(url: string): Promise<void> {
   }
 
   if (initialState.reason === "no-migration-journal-non-empty-db") {
-    throw new Error(
-      "Database has tables but no migration journal; automatic migration is unsafe. Initialize migration history manually.",
-    );
+    await bootstrapMigrationJournalForNonEmptyDatabase(url, initialState);
   }
 
   let state = await inspectMigrations(url);
