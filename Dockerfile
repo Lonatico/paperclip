@@ -93,9 +93,5 @@ ENV NODE_ENV=production \
 # at /paperclip in the service settings if you need persistent HOME/config there.
 EXPOSE 3100
 
-# Railway (and similar) inject PORT; local runs default to 3100 in app config.
-HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-  CMD sh -c "curl -fsS http://127.0.0.1:$${PORT:-3100}/api/health/live >/dev/null || exit 1"
-
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "--import", "./server/node_modules/tsx/dist/loader.mjs", "server/dist/index.js"]
