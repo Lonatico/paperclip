@@ -15,6 +15,9 @@
 # 5. Authenticated mode (below): set BETTER_AUTH_SECRET in Railway Variables (e.g.
 #    openssl rand -hex 32). Optional alternative: PAPERCLIP_AGENT_JWT_SECRET. Never
 #    bake secrets into the image.
+# 6. Cursor CLI (cursor_local adapter): set Docker build-arg INSTALL_CURSOR_AGENT=1
+#    (Railway: Settings → Build → Docker build args) so `agent` is installed under
+#    /paperclip/.local/bin. Set CURSOR_API_KEY on the service (not in the image).
 #
 FROM node:lts-trixie-slim AS base
 ARG USER_UID=1000
@@ -66,6 +69,8 @@ RUN test -f server/dist/index.js || (echo "ERROR: server build output missing" &
 FROM base AS production
 ARG USER_UID=1000
 ARG USER_GID=1000
+# Set to 1 so Paperclip cursor_local can resolve `agent` / `cursor-agent` (see header §6).
+ARG INSTALL_CURSOR_AGENT=1
 WORKDIR /app
 COPY --chown=node:node --from=build /app /app
 RUN npm install --global --omit=dev @anthropic-ai/claude-code@latest @openai/codex@latest opencode-ai \
@@ -75,12 +80,21 @@ RUN npm install --global --omit=dev @anthropic-ai/claude-code@latest @openai/cod
   && mkdir -p /paperclip \
   && chown node:node /paperclip
 
+RUN if [ "$INSTALL_CURSOR_AGENT" = "1" ]; then \
+  mkdir -p /paperclip/.local/bin \
+  && chown -R node:node /paperclip \
+  && gosu node bash -lc 'set -euo pipefail; curl -fsS https://cursor.com/install | bash' \
+  && gosu node bash -lc 'if command -v agent >/dev/null 2>&1; then agent --version; elif command -v cursor-agent >/dev/null 2>&1; then cursor-agent --version; else echo "Cursor install did not provide agent or cursor-agent" >&2; exit 1; fi' \
+  && gosu node bash -lc 'if [ -x "$HOME/.local/bin/cursor-agent" ] && ! command -v agent >/dev/null 2>&1; then ln -sf "$HOME/.local/bin/cursor-agent" "$HOME/.local/bin/agent"; fi'; \
+  fi
+
 COPY scripts/docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 ENV NODE_ENV=production \
   HOME=/paperclip \
   HOST=0.0.0.0 \
+  PATH=/paperclip/.local/bin:${PATH} \
   SERVE_UI=true \
   PAPERCLIP_HOME=/paperclip \
   PAPERCLIP_INSTANCE_ID=default \
