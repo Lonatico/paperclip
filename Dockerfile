@@ -15,9 +15,10 @@
 # 5. Authenticated mode (below): set BETTER_AUTH_SECRET in Railway Variables (e.g.
 #    openssl rand -hex 32). Optional alternative: PAPERCLIP_AGENT_JWT_SECRET. Never
 #    bake secrets into the image.
-# 6. Cursor CLI (cursor_local adapter): set Docker build-arg INSTALL_CURSOR_AGENT=1
-#    (Railway: Settings → Build → Docker build args) so `agent` is installed under
-#    /paperclip/.local/bin. Set CURSOR_API_KEY on the service (not in the image).
+# 6. Cursor CLI (cursor_local adapter): build-arg INSTALL_CURSOR_AGENT=1 (default) installs
+#    under /opt/cursor-agent/.local/bin — not under /paperclip — so a Railway Volume mounted
+#    at /paperclip does not hide the CLI. Symlink: /usr/local/bin/agent. Set CURSOR_API_KEY
+#    on the service (not in the image).
 #
 FROM node:lts-trixie-slim AS base
 ARG USER_UID=1000
@@ -81,11 +82,19 @@ RUN npm install --global --omit=dev @anthropic-ai/claude-code@latest @openai/cod
   && chown node:node /paperclip
 
 RUN if [ "$INSTALL_CURSOR_AGENT" = "1" ]; then \
-  mkdir -p /paperclip/.local/bin \
-  && chown -R node:node /paperclip \
-  && gosu node bash -lc 'set -euo pipefail; curl -fsS https://cursor.com/install | bash' \
-  && gosu node bash -lc 'if command -v agent >/dev/null 2>&1; then agent --version; elif command -v cursor-agent >/dev/null 2>&1; then cursor-agent --version; else echo "Cursor install did not provide agent or cursor-agent" >&2; exit 1; fi' \
-  && gosu node bash -lc 'if [ -x "$HOME/.local/bin/cursor-agent" ] && ! command -v agent >/dev/null 2>&1; then ln -sf "$HOME/.local/bin/cursor-agent" "$HOME/.local/bin/agent"; fi'; \
+  install_home=/opt/cursor-agent \
+  && mkdir -p "$install_home/.local/bin" \
+  && chown -R node:node "$install_home" \
+  && gosu node bash -lc 'set -euo pipefail; export HOME=/opt/cursor-agent; curl -fsS https://cursor.com/install | bash' \
+  && gosu node bash -lc 'set -euo pipefail; export HOME=/opt/cursor-agent; export PATH="$HOME/.local/bin:$PATH"; \
+    if command -v agent >/dev/null 2>&1; then agent --version; \
+    elif command -v cursor-agent >/dev/null 2>&1; then cursor-agent --version; \
+    elif [ -x "$HOME/.local/bin/agent" ]; then "$HOME/.local/bin/agent" --version; \
+    elif [ -x "$HOME/.local/bin/cursor-agent" ]; then "$HOME/.local/bin/cursor-agent" --version; \
+    else echo "Cursor install did not provide agent or cursor-agent under /opt/cursor-agent/.local/bin" >&2; ls -la "$HOME/.local/bin" >&2; exit 1; fi' \
+  && gosu node bash -lc 'export HOME=/opt/cursor-agent; if [ -x "$HOME/.local/bin/cursor-agent" ] && ! [ -x "$HOME/.local/bin/agent" ] && ! [ -L "$HOME/.local/bin/agent" ]; then ln -sf "$HOME/.local/bin/cursor-agent" "$HOME/.local/bin/agent"; fi' \
+  && if [ -x /opt/cursor-agent/.local/bin/agent ]; then ln -sf /opt/cursor-agent/.local/bin/agent /usr/local/bin/agent; \
+  elif [ -x /opt/cursor-agent/.local/bin/cursor-agent ]; then ln -sf /opt/cursor-agent/.local/bin/cursor-agent /usr/local/bin/agent; fi; \
   fi
 
 COPY scripts/docker-entrypoint.sh /usr/local/bin/
@@ -94,7 +103,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 ENV NODE_ENV=production \
   HOME=/paperclip \
   HOST=0.0.0.0 \
-  PATH=/paperclip/.local/bin:${PATH} \
+  PATH=/opt/cursor-agent/.local/bin:${PATH} \
   SERVE_UI=true \
   PAPERCLIP_HOME=/paperclip \
   PAPERCLIP_INSTANCE_ID=default \
